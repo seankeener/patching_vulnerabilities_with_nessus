@@ -1,4 +1,7 @@
+#Watch me do it here: https://www.loom.com/share/594defb3d5a94791b5c23279c31a8a62
+
 # SOP: Patching TLS Vulnerabilities with Nessus Essentials
+
 
 **Document ID:** SOP-SEC-TLS-001  
 **Version:** 1.0  
@@ -81,6 +84,11 @@ This SOP describes the process for identifying, remediating, and verifying Trans
 ## 4. Procedure
 
 ### Phase 1: Run Initial Nessus Vulnerability Scan
+
+<img width="2347" height="1004" alt="image" src="https://github.com/user-attachments/assets/dd9e3d6f-4068-4589-b66a-4bbb8f239ad1" />
+<img width="1715" height="609" alt="image" src="https://github.com/user-attachments/assets/e3573520-c2b6-45c0-8506-ea1243f1cd68" />
+
+
 
 1. Open Nessus Essentials in a browser (default: `https://localhost:8834`) on the scan host.
 2. Navigate to **My Scans** and select or create a **Basic Network Scan** targeting the Azure VM IP address.
@@ -170,6 +178,10 @@ Registry-based TLS changes are **not applied until the OS is restarted.**
 ---
 
 ### Phase 5: Verify Remediation with Nessus Rescan
+
+<img width="1689" height="842" alt="image" src="https://github.com/user-attachments/assets/bc4daaa1-3d81-4ac5-a476-06d711abd205" />
+<img width="1717" height="663" alt="image" src="https://github.com/user-attachments/assets/28934f63-1155-4634-8deb-5bdb5846c3d7" />
+
 
 1. Return to Nessus Essentials on the scan host.
 2. Run the same scan configuration against the target VM used in Phase 1.
