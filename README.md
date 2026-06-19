@@ -1,135 +1,245 @@
-## SOP: Scan a Virtual Machine with Nessus Essentials and Remediate TLS Vulnerabilities
+# SOP: Patching TLS Vulnerabilities with Nessus Essentials
 
-### Objective
+**Document ID:** SOP-SEC-TLS-001  
+**Version:** 1.0  
+**Classification:** Internal Use Only  
+**Owner:** Cybersecurity Operations  
+**Last Reviewed:** June 2026  
+**Applies To:** Azure Virtual Machines (Windows Server)  
+**Tools Required:** Nessus Essentials, PowerShell, Azure Portal  
+**CVSS Score (Ref):** 6.5 (Medium) — TLS 1.0/1.1 Enabled  
 
-Use Nessus Essentials to scan a virtual machine for vulnerabilities, identify TLS-related findings, and apply remediation so outdated TLS versions are disabled and the system is re-scanned to confirm the issue is resolved.
+---
 
-### Key Steps
+## Table of Contents
 
- 
+1. [Purpose](#1-purpose)
+2. [Scope](#2-scope)
+3. [Prerequisites](#3-prerequisites)
+4. [Procedure](#4-procedure)
+   - [Phase 1: Run Initial Nessus Scan](#phase-1-run-initial-nessus-vulnerability-scan)
+   - [Phase 2: Connect to the Target VM](#phase-2-connect-to-the-target-vm)
+   - [Phase 3: Apply the TLS Remediation Script](#phase-3-apply-the-tls-remediation-script)
+   - [Phase 4: Restart the VM](#phase-4-restart-the-virtual-machine)
+   - [Phase 5: Verify with Nessus Rescan](#phase-5-verify-remediation-with-nessus-rescan)
+5. [Troubleshooting](#5-troubleshooting)
+6. [Documentation & Change Control](#6-documentation--change-control)
+7. [Registry Key Reference](#7-registry-key-reference)
+8. [Related Resources](#8-related-resources)
+9. [Revision History](#9-revision-history)
 
-**1. Set up Nessus Essentials and target the virtual machine** [0:01](https://loom.com/share/594defb3d5a94791b5c23279c31a8a62?t=1)
+---
 
-![generated-image-at-00:00:01](https://loom.com/i/79ddab374c1940369ae795a136c214bc?workflows_screenshot=true)
+## 1. Purpose
 
-- Download and install **Nessus Essentials**.
-- Identify the **IP address of the virtual machine** you want to assess.
-- Confirm the VM is reachable from the scanning system.
-- Use this setup to perform a **basic network scan** against the VM.
+This SOP describes the process for identifying, remediating, and verifying Transport Layer Security (TLS) vulnerabilities on Azure virtual machines using Nessus Essentials. Specifically, it covers disabling the deprecated TLS 1.0 and TLS 1.1 protocols and enforcing TLS 1.2 and TLS 1.3 on Windows Server systems.
 
- 
+> **Why this matters:** TLS 1.0 and TLS 1.1 are cryptographically weak and have known vulnerabilities (POODLE, BEAST). NIST SP 800-52 Rev. 2 and compliance frameworks (PCI-DSS, FedRAMP) require TLS 1.2+ only. Leaving deprecated versions enabled produces a CVSS Medium finding (6.5) on vulnerability scans.
 
-**2. Review the initial scan results and focus on TLS findings** [0:09](https://loom.com/share/594defb3d5a94791b5c23279c31a8a62?t=9)
+---
 
-![generated-image-at-00:00:09](https://loom.com/i/f212022383c54212ae415b1043556137?workflows_screenshot=true)
+## 2. Scope
 
-- Run the scan and review the discovered vulnerabilities.
-- For this procedure, focus specifically on **TLS-related issues**.
-- Note that the scan may also return SSL or other findings, but those are outside the scope of this lab.
-- Record the affected TLS versions and severity levels for follow-up.
+**In scope:**
+- Windows Server VMs hosted in Microsoft Azure
+- Systems where a Nessus scan reveals TLS 1.0 or TLS 1.1 as enabled
+- IT Support Technicians, System Administrators, and Security Operations personnel performing vulnerability remediation
 
- 
+**Out of scope:**
+- Linux-based VMs (separate mechanism required)
+- Application-layer TLS configuration (IIS, Apache, Nginx — see application-specific SOPs)
+- Nessus installation, licensing, or credentialed scan setup
 
-**3. Identify the vulnerable TLS versions** [0:33](https://loom.com/share/594defb3d5a94791b5c23279c31a8a62?t=33)
+---
 
-![generated-image-at-00:00:33](https://loom.com/i/2f275b94e7c84d1eb0712418051a5ee7?workflows_screenshot=true)
+## 3. Prerequisites
 
-- Confirm whether **TLS 1.0** and **TLS 1.1** are enabled.
-- Document that these versions should be disabled because they are considered insecure.
-- Prioritize remediation based on the severity reported by Nessus.
+### 3.1 Access Requirements
 
- 
+- Azure Portal access (Contributor role minimum) on the target VM
+- RDP or Azure Bastion access to the Windows Server VM
+- Local Administrator or Domain Administrator credentials on the VM
+- Nessus Essentials installed on a scan host with network reachability to the target VM
 
-**4. Use Nessus details to understand the remediation path** [0:42](https://loom.com/share/594defb3d5a94791b5c23279c31a8a62?t=42)
+### 3.2 Knowledge Requirements
 
-![generated-image-at-00:00:42](https://loom.com/i/9714533cc9db4fc8aff3442cd9be6932?workflows_screenshot=true)
+- Basic familiarity with Nessus scan configuration and report review
+- Basic PowerShell usage on Windows Server
+- Understanding of Windows Registry structure
 
-- Open one of the TLS findings in Nessus.
-- Read the **description** to understand why the issue is flagged.
-- Review the **solution/remediation guidance** provided by Nessus.
-- Use the finding details to determine the required configuration change on the VM.
+### 3.3 Tools
 
- 
+| Tool | Version / Edition | Purpose |
+|------|-------------------|---------|
+| Nessus Essentials | Latest (free tier) | Vulnerability scanning |
+| PowerShell | 5.1+ (built-in) | Registry patching via script |
+| Azure Portal | portal.azure.com | VM management & restart |
+| RDP / Azure Bastion | Built-in / Azure Bastion | Remote access to VM |
 
-**5. Apply the remediation to disable outdated TLS and enable secure versions** [1:00](https://loom.com/share/594defb3d5a94791b5c23279c31a8a62?t=60)
+---
 
-![generated-image-at-00:01:00](https://loom.com/i/80bcdcbbb9ce4ea7b98086f68bc04b77?workflows_screenshot=true)
+## 4. Procedure
 
-- Disable support for **TLS 1.0** and **TLS 1.1** on the virtual machine.
-- Enable support for **TLS 1.2** and **TLS 1.3**.
-- If needed, use a script or automation tool to make the configuration change consistently.
-- Verify the script or change set addresses all outdated TLS versions.
+### Phase 1: Run Initial Nessus Vulnerability Scan
 
- 
+1. Open Nessus Essentials in a browser (default: `https://localhost:8834`) on the scan host.
+2. Navigate to **My Scans** and select or create a **Basic Network Scan** targeting the Azure VM IP address.
+3. Confirm the scan is configured with valid credentials (credentialed scan recommended for accurate results).
+4. Launch the scan and wait for it to complete.
+5. Open the scan results and search for `TLS` in the plugin search bar.
+6. Identify the **TLS 1.0 Enabled** and/or **TLS 1.1 Enabled** findings. Note the CVSS score and Plugin ID for your change record.
 
-**6. Validate severity and prioritize the fix appropriately** [1:13](https://loom.com/share/594defb3d5a94791b5c23279c31a8a62?t=73)
+> **Note:** The expected Nessus findings are:
+> - Plugin #104743 — *TLS Version 1.0 Protocol Detection*
+> - Plugin #157288 — *TLS Version 1.1 Protocol Deprecated*
+>
+> Screenshot and record these findings before remediation.
 
-![generated-image-at-00:01:13](https://loom.com/i/d95238474be743e2a3ff6f444651d7ef?workflows_screenshot=true)
+---
 
-- Review the **CVSS score** shown in Nessus.
-- Treat medium-to-high severity findings as items that should be addressed promptly.
-- Ensure the vulnerability is not left exposed after remediation planning.
+### Phase 2: Connect to the Target VM
 
- 
+1. Log in to the Azure Portal (`portal.azure.com`).
+2. Navigate to **Virtual Machines** and select the target VM.
+3. Verify the VM is in a **Running** state.
+4. Connect via **RDP** or **Azure Bastion** using Administrator credentials.
+5. Once logged in, open **PowerShell as Administrator** (right-click Start → Windows PowerShell (Admin)).
 
-**7. Create and run a remediation script if manual changes are inefficient** [1:23](https://loom.com/share/594defb3d5a94791b5c23279c31a8a62?t=83)
+---
 
-![generated-image-at-00:01:23](https://loom.com/i/8267934c6f864e10833a0c0284503e89?workflows_screenshot=true)
+### Phase 3: Apply the TLS Remediation Script
 
-- Use an AI assistant or scripting method to generate a patching script if appropriate.
-- Test the script carefully before applying it broadly.
-- Make sure the script disables the vulnerable TLS versions and enables the approved versions.
-- Keep a copy of the script for repeatable remediation.
+Copy and paste the full script below into an elevated PowerShell session. This script disables TLS 1.0 and TLS 1.1 and explicitly enables TLS 1.2 and TLS 1.3 via the Windows Registry.
 
- 
+> **Critical:** Both `Client` and `Server` registry keys must be set for each protocol. Setting only the `Server` key is a common mistake that results in partial remediation and will **not** clear the Nessus finding on rescan.
 
-**8. Correct any missed TLS settings and rerun the fix** [1:33](https://loom.com/share/594defb3d5a94791b5c23279c31a8a62?t=93)
+```powershell
+# TLS Remediation Script v2 - Disable TLS 1.0 & 1.1, Enable TLS 1.2 & 1.3
+# Run as Local Administrator in PowerShell
 
-![generated-image-at-00:01:33](https://loom.com/i/9abae019eed24b3aa0536c4e2a1c1546?workflows_screenshot=true)
+$tlsBase = 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols'
 
-- Compare the first scan results with the changes applied.
-- If a TLS version was missed, update the script or configuration.
-- Re-run the remediation so all insecure TLS versions are disabled.
-- Confirm the final configuration matches the intended security standard.
+# -- Disable TLS 1.0 ----------------------------------------------------------
+New-Item -Path "$tlsBase\TLS 1.0\Client" -Force | Out-Null
+New-Item -Path "$tlsBase\TLS 1.0\Server" -Force | Out-Null
+Set-ItemProperty -Path "$tlsBase\TLS 1.0\Client" -Name 'Enabled'           -Value 0 -Type DWord
+Set-ItemProperty -Path "$tlsBase\TLS 1.0\Client" -Name 'DisabledByDefault' -Value 1 -Type DWord
+Set-ItemProperty -Path "$tlsBase\TLS 1.0\Server" -Name 'Enabled'           -Value 0 -Type DWord
+Set-ItemProperty -Path "$tlsBase\TLS 1.0\Server" -Name 'DisabledByDefault' -Value 1 -Type DWord
 
- 
+# -- Disable TLS 1.1 ----------------------------------------------------------
+New-Item -Path "$tlsBase\TLS 1.1\Client" -Force | Out-Null
+New-Item -Path "$tlsBase\TLS 1.1\Server" -Force | Out-Null
+Set-ItemProperty -Path "$tlsBase\TLS 1.1\Client" -Name 'Enabled'           -Value 0 -Type DWord
+Set-ItemProperty -Path "$tlsBase\TLS 1.1\Client" -Name 'DisabledByDefault' -Value 1 -Type DWord
+Set-ItemProperty -Path "$tlsBase\TLS 1.1\Server" -Name 'Enabled'           -Value 0 -Type DWord
+Set-ItemProperty -Path "$tlsBase\TLS 1.1\Server" -Name 'DisabledByDefault' -Value 1 -Type DWord
 
-**9. Restart the virtual machine and rescan to confirm resolution** [2:11](https://loom.com/share/594defb3d5a94791b5c23279c31a8a62?t=131)
+# -- Enable TLS 1.2 -----------------------------------------------------------
+New-Item -Path "$tlsBase\TLS 1.2\Client" -Force | Out-Null
+New-Item -Path "$tlsBase\TLS 1.2\Server" -Force | Out-Null
+Set-ItemProperty -Path "$tlsBase\TLS 1.2\Client" -Name 'Enabled'           -Value 1 -Type DWord
+Set-ItemProperty -Path "$tlsBase\TLS 1.2\Client" -Name 'DisabledByDefault' -Value 0 -Type DWord
+Set-ItemProperty -Path "$tlsBase\TLS 1.2\Server" -Name 'Enabled'           -Value 1 -Type DWord
+Set-ItemProperty -Path "$tlsBase\TLS 1.2\Server" -Name 'DisabledByDefault' -Value 0 -Type DWord
 
-![generated-image-at-00:02:11](https://loom.com/i/3f20b414728142b5889cfeb2b618aa93?workflows_screenshot=true)
+# -- Enable TLS 1.3 -----------------------------------------------------------
+New-Item -Path "$tlsBase\TLS 1.3\Client" -Force | Out-Null
+New-Item -Path "$tlsBase\TLS 1.3\Server" -Force | Out-Null
+Set-ItemProperty -Path "$tlsBase\TLS 1.3\Client" -Name 'Enabled'           -Value 1 -Type DWord
+Set-ItemProperty -Path "$tlsBase\TLS 1.3\Client" -Name 'DisabledByDefault' -Value 0 -Type DWord
+Set-ItemProperty -Path "$tlsBase\TLS 1.3\Server" -Name 'Enabled'           -Value 1 -Type DWord
+Set-ItemProperty -Path "$tlsBase\TLS 1.3\Server" -Name 'DisabledByDefault' -Value 0 -Type DWord
 
-- Restart the virtual machine after applying the TLS changes.
-- Run Nessus again against the same IP address.
-- Confirm the TLS 1.0 and 1.1 findings no longer appear.
-- Document the final scan results as evidence that the vulnerability was patched.
+Write-Host 'TLS remediation complete. Restart the VM to apply changes.' -ForegroundColor Green
+```
 
- 
+---
 
-**10. Close out the lab and document the process** [2:43](https://loom.com/share/594defb3d5a94791b5c23279c31a8a62?t=163)
+### Phase 4: Restart the Virtual Machine
 
-![generated-image-at-00:02:43](https://loom.com/i/c38f8500047940b994e9f991ccf538f7?workflows_screenshot=true)
+Registry-based TLS changes are **not applied until the OS is restarted.**
 
-- Summarize the scan, remediation, and validation steps completed.
-- Note any mistakes or corrections made during the process.
-- Record the final outcome: the TLS vulnerability was successfully patched.
-- Save the SOP, script, and scan evidence for future reference.
+1. Confirm the script completed without errors.
+2. Schedule a restart during an approved maintenance window if the VM is production.
+3. Restart using one of the following:
+   - **From within the VM (PowerShell):** `Restart-Computer -Force`
+   - **Azure Portal:** Virtual Machines → select VM → Overview → **Restart**
+4. Wait for the VM to come back online and confirm RDP/Bastion connectivity.
 
-### Cautionary Notes
+---
 
-- **Do not rely on a single scan result**; always rescan after remediation to confirm the issue is resolved.
-- **Verify script changes carefully** before running them on production systems.
-- **Disable only the intended TLS versions** and avoid breaking required services.
-- In a real-world environment, **review all severity findings**, not just TLS-related issues.
-- Restarting the VM may cause temporary service interruption; plan accordingly.
+### Phase 5: Verify Remediation with Nessus Rescan
 
-### Tips for Efficiency
+1. Return to Nessus Essentials on the scan host.
+2. Run the same scan configuration against the target VM used in Phase 1.
+3. After the scan completes, review results for TLS 1.0 and TLS 1.1 findings.
+4. Confirm that **TLS 1.0 Enabled** and **TLS 1.1 Enabled** findings no longer appear.
+5. Export the post-remediation scan report (PDF or CSV) for your change record.
 
-- Use Nessus findings to guide remediation instead of manually guessing the fix.
-- Automate repetitive configuration changes with a script to reduce human error.
-- Keep a baseline scan report so you can compare before-and-after results quickly.
-- If a change is missed, update the script once and reuse it for future systems.
-- Document the exact TLS settings applied so future audits are faster.
+> ✅ **Success:** Remediation is confirmed when the TLS 1.0 and TLS 1.1 findings are absent from the rescan report. If they still appear, see the Troubleshooting section below.
 
-### Link to Loom
+---
 
-<https://loom.com/share/594defb3d5a94791b5c23279c31a8a62>
+## 5. Troubleshooting
+
+| Symptom | Likely Cause | Resolution |
+|---------|--------------|------------|
+| TLS findings still present after rescan | VM not restarted, or only `Server` key was set (not `Client`) | Confirm restart occurred. Re-run the full v2 script ensuring both `Client` and `Server` keys are set for TLS 1.0 and 1.1. |
+| Script runs but no output or partial output | Non-elevated PowerShell session | Close PowerShell. Re-open as Administrator and re-run. |
+| Applications break after restart | Application hard-coded to TLS 1.0/1.1 | Identify and update the application to support TLS 1.2+. Temporarily re-enable TLS 1.1 only if a critical business need exists — document the exception. |
+| Registry keys not visible after script | Incorrect path or insufficient permissions | Manually verify in `regedit.exe` at `HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols`. |
+
+---
+
+## 6. Documentation & Change Control
+
+The following records must be created or updated as part of this remediation:
+
+- [ ] Pre-scan Nessus report (PDF or CSV) showing TLS 1.0/1.1 findings
+- [ ] Change ticket documenting: VM name, date/time, technician, script version used, restart time
+- [ ] Post-scan Nessus report confirming findings are resolved
+- [ ] If application issues occur, document the exception and escalate to the security team for risk acceptance
+
+---
+
+## 7. Registry Key Reference
+
+Expected end state after remediation:
+
+```
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\
+  TLS 1.0\
+    Client\  Enabled = 0    DisabledByDefault = 1
+    Server\  Enabled = 0    DisabledByDefault = 1
+  TLS 1.1\
+    Client\  Enabled = 0    DisabledByDefault = 1
+    Server\  Enabled = 0    DisabledByDefault = 1
+  TLS 1.2\
+    Client\  Enabled = 1    DisabledByDefault = 0
+    Server\  Enabled = 1    DisabledByDefault = 0
+  TLS 1.3\
+    Client\  Enabled = 1    DisabledByDefault = 0
+    Server\  Enabled = 1    DisabledByDefault = 0
+```
+
+> **Note:** TLS 1.3 registry key support varies by OS version. On Windows Server 2019+, TLS 1.3 is enabled by default and may not require explicit registry keys. On Windows Server 2016, TLS 1.3 is not supported at the OS level regardless of registry settings.
+
+---
+
+## 8. Related Resources
+
+- Nessus Plugin #104743 — TLS Version 1.0 Protocol Detection
+- Nessus Plugin #157288 — TLS Version 1.1 Protocol Deprecated
+- [NIST SP 800-52 Rev. 2 — Guidelines for TLS Implementations](https://csrc.nist.gov/publications/detail/sp/800-52/rev-2/final)
+- [Microsoft KB3140245 — Enable TLS 1.1 and 1.2 as default in WinHTTP](https://support.microsoft.com/en-us/topic/update-to-enable-tls-1-1-and-tls-1-2-as-default-secure-protocols-in-winhttp-in-windows-c4bd73d2-31d7-761e-0d87-b049e2f452c2)
+- [CIS Microsoft Windows Server Benchmark](https://www.cisecurity.org/benchmark/microsoft_windows_server)
+- MITRE ATT&CK T1600 — Weaken Encryption (defensive mapping)
+
+---
+
+## 9. Revision History
+
+| Version | Date | Author | Description |
+|---------|------|--------|-------------|
+| 1.0 | June 2026 | Cybersecurity Ops | Initial release based on Nessus Essentials lab walkthrough — TLS 1.0/1.1 remediation on Azure VM |
